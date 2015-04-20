@@ -4279,6 +4279,16 @@ public:
                             SourceLocation TypeidLoc,
                             Expr *Operand,
                             SourceLocation RParenLoc);
+  ExprResult BuildCXXTypeIdAST(QualType TypeASTType,
+                               SourceLocation TypeidLoc,
+                               TypeSourceInfo *Operand,
+                               SourceLocation RParenLoc);
+
+  /// ActOnCXXTypeidAST - Parse typeid< type >.
+  ExprResult ActOnCXXTypeidAST(SourceLocation OpLoc,
+                               SourceLocation LParenLoc,
+                               ParsedType TypeRep,
+                               SourceLocation RParenLoc);
 
   /// ActOnCXXTypeid - Parse typeid( something ).
   ExprResult ActOnCXXTypeid(SourceLocation OpLoc,

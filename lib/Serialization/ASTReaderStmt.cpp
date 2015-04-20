@@ -1304,6 +1304,13 @@ void ASTStmtReader::VisitCXXTypeidExpr(CXXTypeidExpr *E) {
   E->setExprOperand(Reader.ReadSubExpr());
 }
 
+void ASTStmtReader::VisitCXXTypeidExprAST(CXXTypeidExprAST *E) {
+  VisitExpr(E);
+  E->setSourceRange(ReadSourceRange(Record, Idx));
+  E->setOperandSourceInfo(GetTypeSourceInfo(Record, Idx));
+}
+
+
 void ASTStmtReader::VisitCXXThisExpr(CXXThisExpr *E) {
   VisitExpr(E);
   E->setLocation(ReadSourceLocation(Record, Idx));
@@ -2870,6 +2877,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     case EXPR_CXX_TYPEID_TYPE:
       S = new (Context) CXXTypeidExpr(Empty, false);
+      break;
+    case EXPR_CXX_TYPEID_AST_TYPE:
+      S = new (Context) CXXTypeidExprAST(Empty, false);
       break;
     case EXPR_CXX_UUIDOF_EXPR:
       S = new (Context) CXXUuidofExpr(Empty, true);

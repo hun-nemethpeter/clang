@@ -613,6 +613,62 @@ public:
   }
 };
 
+/// A C++ \c typeid expression (C++ [expr.typeid]), which gets
+/// the \c type_info that corresponds to the supplied type, or the (possibly
+/// dynamic) type of the supplied expression.
+///
+/// This represents code like \c typeid(int) or \c typeid(*objPtr)
+class CXXTypeidExprAST : public Expr {
+private:
+  TypeSourceInfo* Operand;
+  SourceRange Range;
+
+public:
+  CXXTypeidExprAST(QualType Ty, TypeSourceInfo *Operand, SourceRange R)
+    : Expr(CXXTypeidExprASTClass, Ty, VK_LValue, OK_Ordinary,
+           // typeid is never type-dependent (C++ [temp.dep.expr]p4)
+           false,
+           // typeid is value-dependent if the type or expression are dependent
+           Operand->getType()->isDependentType(),
+           Operand->getType()->isInstantiationDependentType(),
+           Operand->getType()->containsUnexpandedParameterPack()),
+      Operand(Operand), Range(R) { }
+
+  CXXTypeidExprAST(EmptyShell Empty, bool isExpr)
+    : Expr(CXXTypeidExprASTClass, Empty), Operand(nullptr) { }
+
+  /// Determine whether this typeid has a type operand which is potentially
+  /// evaluated, per C++11 [expr.typeid]p3.
+  bool isPotentiallyEvaluated() const { return false; }
+
+  /// \brief Retrieves the type operand of this typeid() expression after
+  /// various required adjustments (removing reference types, cv-qualifiers).
+  QualType getTypeOperand(ASTContext &Context) const;
+
+  /// \brief Retrieve source information for the type operand.
+  TypeSourceInfo *getOperandSourceInfo() const {
+    return Operand;
+  }
+
+  void setOperandSourceInfo(TypeSourceInfo *TSI) {
+    Operand = TSI;
+  }
+
+  SourceLocation getLocStart() const LLVM_READONLY { return Range.getBegin(); }
+  SourceLocation getLocEnd() const LLVM_READONLY { return Range.getEnd(); }
+  SourceRange getSourceRange() const LLVM_READONLY { return Range; }
+  void setSourceRange(SourceRange R) { Range = R; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXTypeidExprClass;
+  }
+
+  // Iterators
+  child_range children() {
+    return child_range();
+  }
+};
+
 /// \brief A member reference to an MSPropertyDecl. 
 ///
 /// This expression always has pseudo-object type, and therefore it is

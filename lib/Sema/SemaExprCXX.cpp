@@ -509,6 +509,60 @@ Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
   return BuildCXXTypeId(TypeInfoType, OpLoc, (Expr*)TyOrExpr, RParenLoc);
 }
 
+/// ActOnCXXTypeidAST - Parse typeid< type-id >
+ExprResult
+Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
+                        ParsedType TypeRep, SourceLocation RParenLoc) {
+  // Find the std::type_info type.
+  if (!getStdNamespace())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
+  // The operand is a type; handle it as such.
+  TypeSourceInfo *TInfo = nullptr;
+  QualType T = GetTypeFromParser(TypeRep, &TInfo);
+  if (T.isNull())
+    return ExprError();
+
+  if (!TInfo)
+    TInfo = Context.getTrivialTypeSourceInfo(T, OpLoc);
+
+  CXXRecordDecl *CXXTypeASTDecl = nullptr;
+  IdentifierInfo *TypeInfoII = &PP.getIdentifierTable().get("ast_class");
+  LookupResult R(*this, TypeInfoII, SourceLocation(), LookupTagName);
+  LookupQualifiedName(R, getStdNamespace());
+  CXXTypeASTDecl = R.getAsSingle<CXXRecordDecl>();
+  QualType TypeASTType = Context.getTypeDeclType(CXXTypeASTDecl);
+
+  return BuildCXXTypeIdAST(TypeASTType, OpLoc, TInfo, RParenLoc);
+}
+
+/// \brief Build a C++ typeid<> expression with a type operand.
+ExprResult Sema::BuildCXXTypeIdAST(QualType TypeASTType,
+                                   SourceLocation TypeidLoc,
+                                   TypeSourceInfo *Operand,
+                                   SourceLocation RParenLoc) {
+  // C++ [expr.typeid]p4:
+  //   The top-level cv-qualifiers of the lvalue expression or the type-id
+  //   that is the operand of typeid are always ignored.
+  //   If the type of the type-id is a class type or a reference to a class
+  //   type, the class shall be completely-defined.
+  Qualifiers Quals;
+  QualType T
+    = Context.getUnqualifiedArrayType(Operand->getType().getNonReferenceType(),
+                                      Quals);
+
+  if (T->getAs<RecordType>() &&
+      RequireCompleteType(TypeidLoc, T, diag::err_incomplete_typeid))
+    return ExprError();
+
+  if (T->isVariablyModifiedType())
+    return ExprError(Diag(TypeidLoc, diag::err_variably_modified_typeid) << T);
+
+  llvm::errs() << "Hello typid<" << Operand->getType().getAsString() <<  ">!\n";
+
+  return new (Context) CXXTypeidExprAST(TypeASTType.withConst(), Operand, SourceRange(TypeidLoc, RParenLoc));
+}
+
 /// \brief Build a Microsoft __uuidof expression with a type operand.
 ExprResult Sema::BuildCXXUuidof(QualType TypeInfoType,
                                 SourceLocation TypeidLoc,

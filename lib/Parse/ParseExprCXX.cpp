@@ -1334,7 +1334,30 @@ ExprResult Parser::ParseCXXTypeid() {
   assert(Tok.is(tok::kw_typeid) && "Not 'typeid'!");
 
   SourceLocation OpLoc = ConsumeToken();
+  if (Tok.is(tok::less)) {
+    // typeid<
+    //       ^
+    SourceLocation LAngleBracketLoc = Tok.getLocation();
+
+    ConsumeToken();
+    TypeResult Ty = ParseTypeName();
+    if (Ty.isInvalid())
+      return ExprError();
+
+    SourceLocation RAngleBracketLoc = Tok.getLocation();
+
+    if (ExpectAndConsume(tok::greater))
+      return ExprError(Diag(LAngleBracketLoc, diag::note_matching) << tok::less);
+
+    // typeid< ... >
+    //             ^
+
+    return Actions.ActOnCXXTypeidAST(OpLoc, LAngleBracketLoc, Ty.get(),
+                                     RAngleBracketLoc);
+  }
+
   SourceLocation LParenLoc, RParenLoc;
+
   BalancedDelimiterTracker T(*this, tok::l_paren);
 
   // typeid expressions are always parenthesized.

@@ -3063,6 +3063,11 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
     // side-effects in that case whether or not its subexpression does.
     return cast<CXXTypeidExpr>(this)->isPotentiallyEvaluated();
 
+  case CXXTypeidExprASTClass:
+    // typeid might throw if its subexpression is potentially-evaluated, so has
+    // side-effects in that case whether or not its subexpression does.
+    return cast<CXXTypeidExprAST>(this)->isPotentiallyEvaluated();
+
   case CXXConstructExprClass:
   case CXXTemporaryObjectExprClass: {
     const CXXConstructExpr *CE = cast<CXXConstructExpr>(this);

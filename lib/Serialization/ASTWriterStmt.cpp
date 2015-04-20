@@ -1273,6 +1273,13 @@ void ASTStmtWriter::VisitCXXTypeidExpr(CXXTypeidExpr *E) {
   }
 }
 
+void ASTStmtWriter::VisitCXXTypeidExprAST(CXXTypeidExprAST *E) {
+  VisitExpr(E);
+  Writer.AddSourceRange(E->getSourceRange(), Record);
+  Writer.AddTypeSourceInfo(E->getOperandSourceInfo(), Record);
+  Code = serialization::EXPR_CXX_TYPEID_AST_TYPE;
+}
+
 void ASTStmtWriter::VisitCXXThisExpr(CXXThisExpr *E) {
   VisitExpr(E);
   Writer.AddSourceLocation(E->getLocation(), Record);

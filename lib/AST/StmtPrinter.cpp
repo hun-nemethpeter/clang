@@ -1590,6 +1590,12 @@ void StmtPrinter::VisitCXXTypeidExpr(CXXTypeidExpr *Node) {
   OS << ")";
 }
 
+void StmtPrinter::VisitCXXTypeidExprAST(CXXTypeidExprAST *Node) {
+  OS << "typeid<";
+  Node->getOperandSourceInfo()->getType().print(OS, Policy);
+  OS << ">";
+}
+
 void StmtPrinter::VisitCXXUuidofExpr(CXXUuidofExpr *Node) {
   OS << "__uuidof(";
   if (Node->isTypeOperand()) {

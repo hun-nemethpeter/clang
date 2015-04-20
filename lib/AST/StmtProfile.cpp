@@ -1049,6 +1049,11 @@ void StmtProfiler::VisitCXXTypeidExpr(const CXXTypeidExpr *S) {
     VisitType(S->getTypeOperandSourceInfo()->getType());
 }
 
+void StmtProfiler::VisitCXXTypeidExprAST(const CXXTypeidExprAST *S) {
+  VisitExpr(S);
+  VisitType(S->getOperandSourceInfo()->getType());
+}
+
 void StmtProfiler::VisitCXXUuidofExpr(const CXXUuidofExpr *S) {
   VisitExpr(S);
   if (S->isTypeOperand())

@@ -2231,6 +2231,17 @@ public:
                                     RParenLoc);
   }
 
+  /// \brief Build a new C++ typeid(type) expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildCXXTypeidExprAST(QualType TypeASTType,
+                                     SourceLocation TypeidLoc,
+                                     TypeSourceInfo *Operand,
+                                     SourceLocation RParenLoc) {
+    return getSema().BuildCXXTypeIdAST(TypeASTType, TypeidLoc, Operand, RParenLoc);
+  }
+
   /// \brief Build a new C++ __uuidof(type) expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
@@ -8309,6 +8320,24 @@ TreeTransform<Derived>::TransformCXXTypeidExpr(CXXTypeidExpr *E) {
                                            E->getLocStart(),
                                            SubExpr.get(),
                                            E->getLocEnd());
+}
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXTypeidExprAST(CXXTypeidExprAST *E) {
+  TypeSourceInfo *TInfo
+    = getDerived().TransformType(E->getOperandSourceInfo());
+
+  if (!TInfo)
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && TInfo == E->getOperandSourceInfo())
+    return E;
+
+  return getDerived().RebuildCXXTypeidExprAST(E->getType(),
+                                              E->getLocStart(),
+                                              TInfo,
+                                              E->getLocEnd());
 }
 
 template<typename Derived>
