@@ -2879,7 +2879,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) CXXTypeidExpr(Empty, false);
       break;
     case EXPR_CXX_TYPEID_AST_TYPE:
-      S = new (Context) CXXTypeidExprAST(Empty, false);
+      S = new (Context) CXXTypeidExprAST(Empty);
       break;
     case EXPR_CXX_UUIDOF_EXPR:
       S = new (Context) CXXUuidofExpr(Empty, true);

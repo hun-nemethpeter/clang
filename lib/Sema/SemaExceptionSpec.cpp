@@ -931,6 +931,8 @@ CanThrowResult Sema::canThrow(const Expr *E) {
       return CT;
     return mergeCanThrow(CT, canSubExprsThrow(*this, E));
   }
+  case Expr::CXXTypeidExprASTClass:
+    return CT_Can;
 
   case Expr::CXXTypeidExprClass:
     //   - a potentially evaluated typeid expression applied to a glvalue

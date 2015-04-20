@@ -634,7 +634,7 @@ public:
            Operand->getType()->containsUnexpandedParameterPack()),
       Operand(Operand), Range(R) { }
 
-  CXXTypeidExprAST(EmptyShell Empty, bool isExpr)
+  CXXTypeidExprAST(EmptyShell Empty)
     : Expr(CXXTypeidExprASTClass, Empty), Operand(nullptr) { }
 
   /// Determine whether this typeid has a type operand which is potentially
