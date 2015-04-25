@@ -517,6 +517,16 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   if (!getStdNamespace())
     return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
 
+  // get std::ast namespace
+  IdentifierInfo *TypeInfoAST = &PP.getIdentifierTable().get("ast");
+  LookupResult RAST(*this, TypeInfoAST, SourceLocation(), LookupNamespaceName);
+  LookupQualifiedName(RAST, getStdNamespace());
+  if (RAST.empty() || RAST.isAmbiguous())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+  NamespaceDecl *StdAstNamespace = RAST.getAsSingle<NamespaceDecl>();
+  if (!StdAstNamespace)
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
   // The operand is a type; handle it as such.
   TypeSourceInfo *TInfo = nullptr;
   QualType T = GetTypeFromParser(TypeRep, &TInfo);
@@ -526,14 +536,101 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   if (!TInfo)
     TInfo = Context.getTrivialTypeSourceInfo(T, OpLoc);
 
-  CXXRecordDecl *CXXTypeASTDecl = nullptr;
-  IdentifierInfo *TypeInfoII = &PP.getIdentifierTable().get("ast_class");
+  // get std::ast::ast_identifier
+  IdentifierInfo *TypeInfoII = &PP.getIdentifierTable().get("ast_identifier");
   LookupResult R(*this, TypeInfoII, SourceLocation(), LookupTagName);
-  LookupQualifiedName(R, getStdNamespace());
-  CXXTypeASTDecl = R.getAsSingle<CXXRecordDecl>();
-  QualType TypeASTType = Context.getTypeDeclType(CXXTypeASTDecl);
+  LookupQualifiedName(R, StdAstNamespace);
+  CXXRecordDecl *CXXTypeASTDecl = R.getAsSingle<CXXRecordDecl>();
+  if (!CXXTypeASTDecl)
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
 
-  return BuildCXXTypeIdAST(TypeASTType, OpLoc, TInfo, RParenLoc);
+  QualType TypeASTType = QualType(CXXTypeASTDecl->getTypeForDecl(), 0).withConst();
+  DeclContextLookupResult Ctor = LookupConstructors(CXXTypeASTDecl);
+  if (Ctor.empty())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
+  // |     `-VarDecl 0x79a9090 <line:15:1, col:54> col:43 used test 'const std::ast::ast_identifier':'const class std::ast::ast_identifier' static callinit
+  // |       `-CXXConstructExpr 0x79a95a0 <col:43, col:54> 'const std::ast::ast_identifier':'const class std::ast::ast_identifier' 'void (const char *)'
+  // |         `-ImplicitCastExpr 0x79a9588 <col:48> 'const char *' <ArrayToPointerDecay>
+  // |           `-StringLiteral 0x79a9168 <col:48> 'const char [5]' lvalue "test"
+  // create StringLiteral "test"
+  llvm::StringRef id = "test";
+  QualType StrTy = Context.getConstantArrayType(Context.CharTy.withConst(),
+                                                llvm::APInt(32, id.size() + 1),
+                                                ArrayType::Normal, 0);
+  StringLiteral *Lit = StringLiteral::CreateEmpty(Context, 1);
+  Lit->setString(Context, id, StringLiteral::Ascii, /* Pascal */ false);
+  Lit->setType(StrTy);
+  Lit->setValueKind(VK_LValue);
+  Lit->setContainsUnexpandedParameterPack(false);
+  IdentifierInfo *AstII = &PP.getIdentifierTable().get("test");
+
+  // create ImplicitCastExpr
+  ImplicitCastExpr *ImplCast = ImplicitCastExpr::CreateEmpty(Context, 0);
+  ImplCast->setType(Context.getArrayDecayedType(StrTy.withConst()));
+  ImplCast->setTypeDependent(false);
+  ImplCast->setInstantiationDependent(false);
+  ImplCast->setContainsUnexpandedParameterPack(false);
+  ImplCast->setValueKind(VK_RValue);
+  ImplCast->setSubExpr(Lit);
+  ImplCast->setCastKind(CK_ArrayToPointerDecay);
+
+  Expr *ConstructorArg[] = { ImplCast };
+  MultiExprArg ConstructorArgs(ConstructorArg, 1);
+  CXXConstructorDecl *ConstructorDecl = dyn_cast<CXXConstructorDecl>(*Ctor.begin());
+
+  // hack start
+  IdentifierInfo *DDDDII = &PP.getIdentifierTable().get("dddd");
+  LookupResult ResultDDDD(*this, DDDDII, SourceLocation(), LookupOrdinaryName);
+  LookupQualifiedName(ResultDDDD, StdAstNamespace);
+  VarDecl *DDDDVarDecl = static_cast<VarDecl*>(ResultDDDD.getFoundDecl());
+  //TypeASTType = DDDDVarDecl->getType();
+  // hack end
+
+  ExprResult ret = BuildCXXConstructExpr(OpLoc, TypeASTType, ConstructorDecl, false, ConstructorArgs,
+                               /*HadMultipleCandidates*/ false,
+                               /*ListInit*/ false, /*StdInitListInit*/ false,
+                               /*ZeroInit*/ false,
+                               CXXConstructExpr::CK_Complete, SourceRange());
+
+  CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
+
+  VarDecl *GenVar = VarDecl::Create(Context, StdAstNamespace, OpLoc, SourceLocation(),
+                                    AstII, TypeASTType,
+                                    Context.getTrivialTypeSourceInfo(TypeASTType, OpLoc),
+                                    SC_Static);
+  StdAstNamespace->addDecl(GenVar);
+
+  GenVar->setInit(CTor);
+  GenVar->setInitStyle(VarDecl::CallInit);
+  GenVar->setReferenced(true);
+  GenVar->setIsUsed();
+  GenVar->setConstexpr(true);
+
+  SplitQualType T_splitDDDD = DDDDVarDecl->getType().split();
+  llvm::errs() << "DDDDVarDecl type: " << QualType::getAsString(T_splitDDDD) << "\n";
+  llvm::errs() << "DDDDVarDecl->isConstexpr():" << DDDDVarDecl->isConstexpr() << "\n";
+  llvm::errs() << "DDDDVarDecl->isReferenced():" << DDDDVarDecl->isReferenced() << "\n";
+  llvm::errs() << "DDDDVarDecl->isStaticDataMember():" << DDDDVarDecl->isStaticDataMember() << "\n";
+  llvm::errs() << "DDDDVarDecl->isUsableInConstantExpressions():" << DDDDVarDecl->isUsableInConstantExpressions(Context) << "\n";
+  llvm::errs() << "DDDDVarDecl->isWeak():" << DDDDVarDecl->isWeak() << "\n";
+  llvm::errs() << "DDDDVarDecl->isUsed():" << DDDDVarDecl->isUsed() << "\n";
+  llvm::errs() << "DDDDVarDecl->isThisDeclarationADefinition():" << DDDDVarDecl->isThisDeclarationADefinition() << "\n";
+  llvm::errs() << "DDDDVarDecl->getDeclKindName():" << DDDDVarDecl->getDeclKindName() << "\n";
+
+  SplitQualType T_split = TypeASTType.split();
+  llvm::errs() << "GenVar type: " << QualType::getAsString(T_split) << "\n";
+  llvm::errs() << "GenVar->isConstexpr():" << GenVar->isConstexpr() << "\n";
+  llvm::errs() << "GenVar->isReferenced():" << GenVar->isReferenced() << "\n";
+  llvm::errs() << "GenVar->isStaticDataMember():" << GenVar->isStaticDataMember() << "\n";
+  llvm::errs() << "GenVar->isUsableInConstantExpressions():" << GenVar->isUsableInConstantExpressions(Context) << "\n";
+  llvm::errs() << "GenVar->isWeak():" << GenVar->isWeak() << "\n";
+  llvm::errs() << "GenVar->isUsed():" << GenVar->isUsed() << "\n";
+  llvm::errs() << "GenVar->isThisDeclarationADefinition():" << GenVar->isThisDeclarationADefinition() << "\n";
+  llvm::errs() << "GenVar->getDeclKindName():" << GenVar->getDeclKindName() << "\n";
+
+  return BuildDeclRefExpr(GenVar, TypeASTType, VK_LValue, OpLoc);
+//  return BuildCXXTypeIdAST(TypeASTType, OpLoc, TInfo, RParenLoc);
 }
 
 /// \brief Build a C++ typeid<> expression with a type operand.
