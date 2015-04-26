@@ -511,11 +511,18 @@ Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
 
 /// Build an ast_identifier node
 VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
-                                         NamespaceDecl *StdAstNamespace,
+                                         NamespaceDecl *Namespace,
                                          llvm::StringRef ID,
                                          SourceLocation OpLoc,
                                          CXXConstructorDecl *AstCtorDecl)
 {
+  IdentifierInfo *IDII = &PP.getIdentifierTable().get(ID);
+  LookupResult IDR(*this, IDII, SourceLocation(), LookupOrdinaryName);
+  LookupQualifiedName(IDR, Namespace);
+  VarDecl *GenVar = IDR.getAsSingle<VarDecl>();
+  if (GenVar)
+    return GenVar;
+
   // create StringLiteral with the name of the type parameter
   QualType StrTy = Context.getConstantArrayType(Context.CharTy.withConst(),
                                                 llvm::APInt(32, ID.size() + 1),
@@ -523,12 +530,12 @@ VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
   StringLiteral *Lit = StringLiteral::CreateEmpty(Context, 1);
   Lit->setString(Context, ID, StringLiteral::Ascii, /* Pascal */ false);
   Lit->setType(StrTy);
-  Lit->setValueKind(VK_LValue);
+//  Lit->setValueKind(VK_LValue);
   Lit->setContainsUnexpandedParameterPack(false);
   Lit->setValueDependent(false);
   IdentifierInfo *AstII = &PP.getIdentifierTable().get(ID);
 
-#if 1
+#if 0
   // create ImplicitCastExpr
   ImplicitCastExpr *ImplCast = ImplicitCastExpr::CreateEmpty(Context, 0);
   ImplCast->setType(Context.getArrayDecayedType(StrTy.withConst()));
@@ -541,7 +548,7 @@ VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
   ImplCast->setValueDependent(false);
 #endif
 
-  Expr *AstCtorArg[] = { ImplCast };
+  Expr *AstCtorArg[] = { Lit };
   MultiExprArg AstCtorArgs(AstCtorArg, 1);
 
   ExprResult ret = BuildCXXConstructExpr(OpLoc, AstType, AstCtorDecl, false, AstCtorArgs,
@@ -553,14 +560,16 @@ VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
   CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
   CTor->setValueDependent(false);
 
-  VarDecl *GenVar = VarDecl::Create(Context, StdAstNamespace, OpLoc, SourceLocation(),
-                                    AstII, AstType,
-                                    Context.getTrivialTypeSourceInfo(AstType, OpLoc),
-                                    SC_Static);
-  StdAstNamespace->addDecl(GenVar);
-
+  GenVar = VarDecl::Create(Context, Namespace, OpLoc, SourceLocation(),
+                           AstII, AstType,
+                           Context.getTrivialTypeSourceInfo(AstType, OpLoc),
+                           SC_Static);
+  Namespace->addDecl(GenVar);
+  AddInitializerToDecl(GenVar, Lit, false, false);
+#if 0
   GenVar->setInit(CTor);
   GenVar->setInitStyle(VarDecl::CallInit);
+#endif
   GenVar->setReferenced(true);
   GenVar->setIsUsed();
   GenVar->setConstexpr(true);
@@ -584,6 +593,16 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
     return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
   NamespaceDecl *StdAstNamespace = RAST.getAsSingle<NamespaceDecl>();
   if (!StdAstNamespace)
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
+  // Find std::reflection namespace
+  IdentifierInfo *TypeInfoReflection = &PP.getIdentifierTable().get("reflection");
+  LookupResult RReflection(*this, TypeInfoReflection, SourceLocation(), LookupNamespaceName);
+  LookupQualifiedName(RReflection, getStdNamespace());
+  if (RReflection.empty() || RReflection.isAmbiguous())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+  NamespaceDecl *StdReflectionNamespace = RReflection.getAsSingle<NamespaceDecl>();
+  if (!StdReflectionNamespace)
     return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
 
   // Get type info from parsed type parameter
@@ -623,11 +642,10 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   QualType AstIdentifierType = QualType(AstIdentifierDecl->getTypeForDecl(), 0).withConst();
 
   RecordDecl *TRecordDecl = TOrig->getAs<RecordType>()->getDecl();
-#if 0
   for (RecordDecl::field_iterator it = TRecordDecl->field_begin();
        it != TRecordDecl->field_end();
        ++it) {
-    VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdAstNamespace,
+    VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdReflectionNamespace,
                                                 (*it)->getName(), OpLoc, AstIdentifierCtor);
     if (const BuiltinType *BT =
         dyn_cast<BuiltinType>((*it)->getType()->getCanonicalTypeInternal())) {
@@ -707,7 +725,6 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
         llvm::errs() << "DDDD BuiltinTypeDecl not found: " << BuiltInName << "\n";
         break;
       }
-
 #if 0
       Expr *AstCtorArg[] = { type, id };
       MultiExprArg AstCtorArgs(AstCtorArg, 2);
@@ -720,12 +737,11 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
 
       CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
       CTor->setValueDependent(false);
-
-      VarDecl *GenVar = VarDecl::Create(Context, StdAstNamespace, OpLoc, SourceLocation(),
+      VarDecl *GenVar = VarDecl::Create(Context, StdReflectionNamespace, OpLoc, SourceLocation(),
                                         AstII, AstType,
                                         Context.getTrivialTypeSourceInfo(AstType, OpLoc),
                                         SC_Static);
-      StdAstNamespace->addDecl(GenVar);
+      StdReflectionNamespace->addDecl(GenVar);
 
       GenVar->setInit(CTor);
       GenVar->setInitStyle(VarDecl::CallInit);
@@ -735,10 +751,9 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
 #endif
     }
   }
-#endif
 
   llvm::StringRef ID = TRecordDecl->getName();
-  VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdAstNamespace, ID, OpLoc, AstIdentifierCtor);
+  VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdReflectionNamespace, ID, OpLoc, AstIdentifierCtor);
 
   return BuildDeclRefExpr(GenVar, AstIdentifierType, VK_LValue, OpLoc);
 }
