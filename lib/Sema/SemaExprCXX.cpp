@@ -516,7 +516,10 @@ VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
                                          SourceLocation OpLoc,
                                          CXXConstructorDecl *AstCtorDecl)
 {
-  IdentifierInfo *IDII = &PP.getIdentifierTable().get(ID);
+  static const std::string IDPrefix = "id_";
+  std::string IDVarStr = IDPrefix + ID.str();
+
+  IdentifierInfo *IDII = &PP.getIdentifierTable().get(IDVarStr);
   LookupResult IDR(*this, IDII, OpLoc, LookupOrdinaryName);
   LookupQualifiedName(IDR, Namespace);
   VarDecl *GenVar = IDR.getAsSingle<VarDecl>();
@@ -628,13 +631,15 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   if (TOrig->getAs<RecordType>() && RequireCompleteType(OpLoc, T, diag::err_incomplete_typeid))
     return ExprError();
 
-
   RecordDecl *TRecordDecl = TOrig->getAs<RecordType>()->getDecl();
   for (RecordDecl::field_iterator it = TRecordDecl->field_begin();
-       it != TRecordDecl->field_end();
-       ++it) {
+       it != TRecordDecl->field_end(); ++it) {
+    static const std::string VarPrefix = "var_";
+    std::string VarStr = VarPrefix + (*it)->getName().str();
     VarDecl *IDVar = BuildAstInfoForIdentifier(AstIdentifierType, StdReflectionNamespace,
                                                (*it)->getName(), OpLoc, AstIdentifierCtor);
+    IdentifierInfo *VarII = &PP.getIdentifierTable().get(VarStr);
+
     if (const BuiltinType *BT =
         dyn_cast<BuiltinType>((*it)->getType()->getCanonicalTypeInternal())) {
       // TODO: include/clang/AST/BuiltinTypes.def
@@ -725,11 +730,10 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
 
       CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
       CTor->setValueDependent(false);
-      IdentifierInfo *IDII = &PP.getIdentifierTable().get((*it)->getName());
 
       // create var ast_var
       VarDecl *VarVar = VarDecl::Create(Context, StdReflectionNamespace, OpLoc, OpLoc,
-                                        IDII, AstVarType,
+                                        VarII, AstVarType,
                                         Context.getTrivialTypeSourceInfo(AstVarType, OpLoc),
                                         SC_Static);
 
