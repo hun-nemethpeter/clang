@@ -509,62 +509,26 @@ Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
   return BuildCXXTypeId(TypeInfoType, OpLoc, (Expr*)TyOrExpr, RParenLoc);
 }
 
-/// ActOnCXXTypeidAST - Parse typeid< type-id >
-ExprResult
-Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
-                        ParsedType TypeRep, SourceLocation RParenLoc) {
-  // Find the std::type_info type.
-  if (!getStdNamespace())
-    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
-
-  // get std::ast namespace
-  IdentifierInfo *TypeInfoAST = &PP.getIdentifierTable().get("ast");
-  LookupResult RAST(*this, TypeInfoAST, SourceLocation(), LookupNamespaceName);
-  LookupQualifiedName(RAST, getStdNamespace());
-  if (RAST.empty() || RAST.isAmbiguous())
-    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
-  NamespaceDecl *StdAstNamespace = RAST.getAsSingle<NamespaceDecl>();
-  if (!StdAstNamespace)
-    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
-
-  // The operand is a type; handle it as such.
-  TypeSourceInfo *TInfo = nullptr;
-  QualType T = GetTypeFromParser(TypeRep, &TInfo);
-  if (T.isNull())
-    return ExprError();
-
-  if (!TInfo)
-    TInfo = Context.getTrivialTypeSourceInfo(T, OpLoc);
-
-  // get std::ast::ast_identifier
-  IdentifierInfo *TypeInfoII = &PP.getIdentifierTable().get("ast_identifier");
-  LookupResult R(*this, TypeInfoII, SourceLocation(), LookupTagName);
-  LookupQualifiedName(R, StdAstNamespace);
-  CXXRecordDecl *CXXTypeASTDecl = R.getAsSingle<CXXRecordDecl>();
-  if (!CXXTypeASTDecl)
-    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
-
-  QualType TypeASTType = QualType(CXXTypeASTDecl->getTypeForDecl(), 0).withConst();
-  DeclContextLookupResult Ctor = LookupConstructors(CXXTypeASTDecl);
-  if (Ctor.empty())
-    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
-
-  // |     `-VarDecl 0x79a9090 <line:15:1, col:54> col:43 used test 'const std::ast::ast_identifier':'const class std::ast::ast_identifier' static callinit
-  // |       `-CXXConstructExpr 0x79a95a0 <col:43, col:54> 'const std::ast::ast_identifier':'const class std::ast::ast_identifier' 'void (const char *)'
-  // |         `-ImplicitCastExpr 0x79a9588 <col:48> 'const char *' <ArrayToPointerDecay>
-  // |           `-StringLiteral 0x79a9168 <col:48> 'const char [5]' lvalue "test"
-  // create StringLiteral "test"
-  llvm::StringRef id = "test";
+/// Build an ast_identifier node
+VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
+                                         NamespaceDecl *StdAstNamespace,
+                                         llvm::StringRef ID,
+                                         SourceLocation OpLoc,
+                                         CXXConstructorDecl *AstCtorDecl)
+{
+  // create StringLiteral with the name of the type parameter
   QualType StrTy = Context.getConstantArrayType(Context.CharTy.withConst(),
-                                                llvm::APInt(32, id.size() + 1),
+                                                llvm::APInt(32, ID.size() + 1),
                                                 ArrayType::Normal, 0);
   StringLiteral *Lit = StringLiteral::CreateEmpty(Context, 1);
-  Lit->setString(Context, id, StringLiteral::Ascii, /* Pascal */ false);
+  Lit->setString(Context, ID, StringLiteral::Ascii, /* Pascal */ false);
   Lit->setType(StrTy);
   Lit->setValueKind(VK_LValue);
   Lit->setContainsUnexpandedParameterPack(false);
-  IdentifierInfo *AstII = &PP.getIdentifierTable().get("test");
+  Lit->setValueDependent(false);
+  IdentifierInfo *AstII = &PP.getIdentifierTable().get(ID);
 
+#if 1
   // create ImplicitCastExpr
   ImplicitCastExpr *ImplCast = ImplicitCastExpr::CreateEmpty(Context, 0);
   ImplCast->setType(Context.getArrayDecayedType(StrTy.withConst()));
@@ -574,30 +538,24 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   ImplCast->setValueKind(VK_RValue);
   ImplCast->setSubExpr(Lit);
   ImplCast->setCastKind(CK_ArrayToPointerDecay);
+  ImplCast->setValueDependent(false);
+#endif
 
-  Expr *ConstructorArg[] = { ImplCast };
-  MultiExprArg ConstructorArgs(ConstructorArg, 1);
-  CXXConstructorDecl *ConstructorDecl = dyn_cast<CXXConstructorDecl>(*Ctor.begin());
+  Expr *AstCtorArg[] = { ImplCast };
+  MultiExprArg AstCtorArgs(AstCtorArg, 1);
 
-  // hack start
-  IdentifierInfo *DDDDII = &PP.getIdentifierTable().get("dddd");
-  LookupResult ResultDDDD(*this, DDDDII, SourceLocation(), LookupOrdinaryName);
-  LookupQualifiedName(ResultDDDD, StdAstNamespace);
-  VarDecl *DDDDVarDecl = static_cast<VarDecl*>(ResultDDDD.getFoundDecl());
-  //TypeASTType = DDDDVarDecl->getType();
-  // hack end
-
-  ExprResult ret = BuildCXXConstructExpr(OpLoc, TypeASTType, ConstructorDecl, false, ConstructorArgs,
+  ExprResult ret = BuildCXXConstructExpr(OpLoc, AstType, AstCtorDecl, false, AstCtorArgs,
                                /*HadMultipleCandidates*/ false,
                                /*ListInit*/ false, /*StdInitListInit*/ false,
                                /*ZeroInit*/ false,
                                CXXConstructExpr::CK_Complete, SourceRange());
 
   CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
+  CTor->setValueDependent(false);
 
   VarDecl *GenVar = VarDecl::Create(Context, StdAstNamespace, OpLoc, SourceLocation(),
-                                    AstII, TypeASTType,
-                                    Context.getTrivialTypeSourceInfo(TypeASTType, OpLoc),
+                                    AstII, AstType,
+                                    Context.getTrivialTypeSourceInfo(AstType, OpLoc),
                                     SC_Static);
   StdAstNamespace->addDecl(GenVar);
 
@@ -607,30 +565,182 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
   GenVar->setIsUsed();
   GenVar->setConstexpr(true);
 
-  SplitQualType T_splitDDDD = DDDDVarDecl->getType().split();
-  llvm::errs() << "DDDDVarDecl type: " << QualType::getAsString(T_splitDDDD) << "\n";
-  llvm::errs() << "DDDDVarDecl->isConstexpr():" << DDDDVarDecl->isConstexpr() << "\n";
-  llvm::errs() << "DDDDVarDecl->isReferenced():" << DDDDVarDecl->isReferenced() << "\n";
-  llvm::errs() << "DDDDVarDecl->isStaticDataMember():" << DDDDVarDecl->isStaticDataMember() << "\n";
-  llvm::errs() << "DDDDVarDecl->isUsableInConstantExpressions():" << DDDDVarDecl->isUsableInConstantExpressions(Context) << "\n";
-  llvm::errs() << "DDDDVarDecl->isWeak():" << DDDDVarDecl->isWeak() << "\n";
-  llvm::errs() << "DDDDVarDecl->isUsed():" << DDDDVarDecl->isUsed() << "\n";
-  llvm::errs() << "DDDDVarDecl->isThisDeclarationADefinition():" << DDDDVarDecl->isThisDeclarationADefinition() << "\n";
-  llvm::errs() << "DDDDVarDecl->getDeclKindName():" << DDDDVarDecl->getDeclKindName() << "\n";
+  return GenVar;
+}
 
-  SplitQualType T_split = TypeASTType.split();
-  llvm::errs() << "GenVar type: " << QualType::getAsString(T_split) << "\n";
-  llvm::errs() << "GenVar->isConstexpr():" << GenVar->isConstexpr() << "\n";
-  llvm::errs() << "GenVar->isReferenced():" << GenVar->isReferenced() << "\n";
-  llvm::errs() << "GenVar->isStaticDataMember():" << GenVar->isStaticDataMember() << "\n";
-  llvm::errs() << "GenVar->isUsableInConstantExpressions():" << GenVar->isUsableInConstantExpressions(Context) << "\n";
-  llvm::errs() << "GenVar->isWeak():" << GenVar->isWeak() << "\n";
-  llvm::errs() << "GenVar->isUsed():" << GenVar->isUsed() << "\n";
-  llvm::errs() << "GenVar->isThisDeclarationADefinition():" << GenVar->isThisDeclarationADefinition() << "\n";
-  llvm::errs() << "GenVar->getDeclKindName():" << GenVar->getDeclKindName() << "\n";
+/// ActOnCXXTypeidAST - Parse typeid< type-id >
+ExprResult
+Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
+                        ParsedType TypeParam, SourceLocation RParenLoc) {
+  // Find the std namespace
+  if (!getStdNamespace())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
 
-  return BuildDeclRefExpr(GenVar, TypeASTType, VK_LValue, OpLoc);
-//  return BuildCXXTypeIdAST(TypeASTType, OpLoc, TInfo, RParenLoc);
+  // Find std::ast namespace
+  IdentifierInfo *TypeInfoAST = &PP.getIdentifierTable().get("ast");
+  LookupResult RAST(*this, TypeInfoAST, SourceLocation(), LookupNamespaceName);
+  LookupQualifiedName(RAST, getStdNamespace());
+  if (RAST.empty() || RAST.isAmbiguous())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+  NamespaceDecl *StdAstNamespace = RAST.getAsSingle<NamespaceDecl>();
+  if (!StdAstNamespace)
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
+  // Get type info from parsed type parameter
+  TypeSourceInfo *TInfo = nullptr;
+  QualType T = GetTypeFromParser(TypeParam, &TInfo);
+  if (T.isNull())
+    return ExprError();
+  if (!TInfo)
+    TInfo = Context.getTrivialTypeSourceInfo(T, OpLoc);
+
+  // get std::ast::ast_identifier
+  IdentifierInfo *AstIdentifierII = &PP.getIdentifierTable().get("ast_identifier");
+  LookupResult R(*this, AstIdentifierII, SourceLocation(), LookupTagName);
+  LookupQualifiedName(R, StdAstNamespace);
+  CXXRecordDecl *AstIdentifierDecl = R.getAsSingle<CXXRecordDecl>();
+  if (!AstIdentifierDecl)
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+
+  // lookup the constructor of ast_identifier
+  DeclContextLookupResult AstIdentifierCtorR = LookupConstructors(AstIdentifierDecl);
+  if (AstIdentifierCtorR.empty())
+    return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
+  CXXConstructorDecl *AstIdentifierCtor =
+      dyn_cast<CXXConstructorDecl>(*AstIdentifierCtorR.begin());
+  if (!AstIdentifierCtor) {
+    if (auto FTD = dyn_cast<FunctionTemplateDecl>(*AstIdentifierCtorR.begin()))
+      AstIdentifierCtor = dyn_cast<CXXConstructorDecl>(FTD->getTemplatedDecl());
+  }
+
+  // get the type of the parameter of typeid< ... >
+  Qualifiers Quals;
+  QualType TOrig = Context.getUnqualifiedArrayType(TInfo->getType().getNonReferenceType(), Quals);
+  if (TOrig->getAs<RecordType>() && RequireCompleteType(OpLoc, T, diag::err_incomplete_typeid))
+    return ExprError();
+
+  // get the 'const ast_identifier' type
+  QualType AstIdentifierType = QualType(AstIdentifierDecl->getTypeForDecl(), 0).withConst();
+
+  RecordDecl *TRecordDecl = TOrig->getAs<RecordType>()->getDecl();
+#if 0
+  for (RecordDecl::field_iterator it = TRecordDecl->field_begin();
+       it != TRecordDecl->field_end();
+       ++it) {
+    VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdAstNamespace,
+                                                (*it)->getName(), OpLoc, AstIdentifierCtor);
+    if (const BuiltinType *BT =
+        dyn_cast<BuiltinType>((*it)->getType()->getCanonicalTypeInternal())) {
+      // TODO: include/clang/AST/BuiltinTypes.def
+      const char *BuiltInName;
+      switch (BT->getKind())
+      {
+        case BuiltinType::Void:
+          BuiltInName = "type_void";
+          break;
+        case BuiltinType::Bool:
+          BuiltInName = "type_bool";
+          break;
+        case BuiltinType::Char_U:
+        case BuiltinType::Char_S:
+          BuiltInName = "type_char";
+          break;
+        case BuiltinType::UChar:
+          BuiltInName = "type_uchar";
+          break;
+        case BuiltinType::SChar:
+          BuiltInName = "type_schar";
+          break;
+        case BuiltinType::WChar_U:
+        case BuiltinType::WChar_S:
+          BuiltInName = "type_wchar_t";
+          break;
+        case BuiltinType::Short:
+          BuiltInName = "type_short";
+          break;
+        case BuiltinType::UShort:
+          BuiltInName = "type_ushort";
+          break;
+        case BuiltinType::Int:
+          BuiltInName = "type_int";
+          break;
+        case BuiltinType::UInt:
+          BuiltInName = "type_uint";
+          break;
+        case BuiltinType::Long:
+          BuiltInName = "type_long";
+          break;
+        case BuiltinType::ULong:
+          BuiltInName = "type_ulong";
+          break;
+        case BuiltinType::LongLong:
+          BuiltInName = "type_long_long";
+          break;
+        case BuiltinType::ULongLong:
+          BuiltInName = "type_ulong_long";
+          break;
+        case BuiltinType::Float:
+          BuiltInName = "type_float";
+          break;
+        case BuiltinType::Double:
+          BuiltInName = "type_double";
+          break;
+        case BuiltinType::LongDouble:
+          BuiltInName = "type_long_double";
+          break;
+        default:
+          break;
+      }
+      IdentifierInfo *BuiltInII = &PP.getIdentifierTable().get("builtin_types");
+      LookupResult BR(*this, BuiltInII, SourceLocation(), LookupTagName);
+      LookupQualifiedName(BR, StdAstNamespace);
+      CXXRecordDecl *BuiltinDecl = BR.getAsSingle<CXXRecordDecl>();
+      if (!BuiltinDecl) {
+        llvm::errs() << "DDDD BuiltinDecl not found\n";
+        break;
+      }
+      IdentifierInfo *BuiltInTypeII = &PP.getIdentifierTable().get(BuiltInName);
+      LookupResult BRT(*this, BuiltInTypeII, SourceLocation(), LookupOrdinaryName);
+      LookupQualifiedName(BRT, BuiltinDecl);
+      VarDecl *BuiltinTypeDecl = BRT.getAsSingle<VarDecl>();
+      if (!BuiltinTypeDecl) {
+        llvm::errs() << "DDDD BuiltinTypeDecl not found: " << BuiltInName << "\n";
+        break;
+      }
+
+#if 0
+      Expr *AstCtorArg[] = { type, id };
+      MultiExprArg AstCtorArgs(AstCtorArg, 2);
+
+      ExprResult ret = BuildCXXConstructExpr(OpLoc, AstType, AstCtorDecl, false, AstCtorArgs,
+                                   /*HadMultipleCandidates*/ false,
+                                   /*ListInit*/ false, /*StdInitListInit*/ false,
+                                   /*ZeroInit*/ false,
+                                   CXXConstructExpr::CK_Complete, SourceRange());
+
+      CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
+      CTor->setValueDependent(false);
+
+      VarDecl *GenVar = VarDecl::Create(Context, StdAstNamespace, OpLoc, SourceLocation(),
+                                        AstII, AstType,
+                                        Context.getTrivialTypeSourceInfo(AstType, OpLoc),
+                                        SC_Static);
+      StdAstNamespace->addDecl(GenVar);
+
+      GenVar->setInit(CTor);
+      GenVar->setInitStyle(VarDecl::CallInit);
+      GenVar->setReferenced(true);
+      GenVar->setIsUsed();
+      GenVar->setConstexpr(true);
+#endif
+    }
+  }
+#endif
+
+  llvm::StringRef ID = TRecordDecl->getName();
+  VarDecl *GenVar = BuildAstInfoForIdentifier(AstIdentifierType, StdAstNamespace, ID, OpLoc, AstIdentifierCtor);
+
+  return BuildDeclRefExpr(GenVar, AstIdentifierType, VK_LValue, OpLoc);
 }
 
 /// \brief Build a C++ typeid<> expression with a type operand.

@@ -1273,6 +1273,7 @@ public:
       emit(DB, llvm::index_sequence_for<Ts...>());
       DB << T;
     }
+    VarDecl* CreateReflectionForIdentifier(QualType TypeASTType, NamespaceDecl *StdAstNamespace, llvm::StringRef ID, SourceLocation OpLoc, DeclContextLookupResult Ctor);
   };
 
 private:
@@ -4283,7 +4284,14 @@ public:
                                SourceLocation TypeidLoc,
                                TypeSourceInfo *Operand,
                                SourceLocation RParenLoc);
+private:
+  VarDecl* BuildAstInfoForIdentifier(QualType AstType,
+                                     NamespaceDecl *StdAstNamespace,
+                                     llvm::StringRef ID,
+                                     SourceLocation OpLoc,
+                                     CXXConstructorDecl *AstCtorDecl);
 
+public:
   /// ActOnCXXTypeidAST - Parse typeid< type >.
   ExprResult ActOnCXXTypeidAST(SourceLocation OpLoc,
                                SourceLocation LParenLoc,
