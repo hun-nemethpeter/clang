@@ -510,6 +510,7 @@ Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
 }
 
 /// Build an ast_identifier node
+///  e.x. static constexpr ast_identifier id_test("test");
 VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
                                          NamespaceDecl *Namespace,
                                          llvm::StringRef ID,
@@ -536,14 +537,22 @@ VarDecl* Sema::BuildAstInfoForIdentifier(QualType AstType,
   Lit->setContainsUnexpandedParameterPack(false);
   Lit->setValueDependent(false);
 
-  // create var ast_identifier
+  // create var 'static constexpr ast_identifier id_test;'
+  TypeSourceInfo *GenVarTSI = Context.getTrivialTypeSourceInfo(AstType, OpLoc);
   GenVar = VarDecl::Create(Context, Namespace, OpLoc, OpLoc,
-                           IDII, AstType,
-                           Context.getTrivialTypeSourceInfo(AstType, OpLoc),
-                           SC_Static);
+                           IDII, AstType, GenVarTSI, SC_Static);
   GenVar->setConstexpr(true);
   GenVar->setInitStyle(VarDecl::CallInit);
-  AddInitializerToDecl(GenVar, Lit, false, false);
+
+  // initialize id_test with "test"
+  InitializedEntity Entity = InitializedEntity::InitializeVariable(GenVar);
+  InitializationKind Kind = InitializationKind::CreateDirect(OpLoc, OpLoc, OpLoc);
+  Expr *ExprsArray[] = { Lit };
+  MultiExprArg Exprs(ExprsArray, 1);
+  InitializationSequence InitSeq(*this, Entity, Kind, Exprs);
+  ExprResult Result = InitSeq.Perform(*this, Entity, Kind, Exprs);
+  GenVar->setInit(Result.get());
+
   Namespace->addDecl(GenVar);
 
   return GenVar;
