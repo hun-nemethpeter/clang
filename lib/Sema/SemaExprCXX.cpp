@@ -725,32 +725,22 @@ Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
       if (!BuiltinTypeDecl)
         return ExprError(Diag(OpLoc, diag::err_need_header_before_typeid));
 
-      ExprResult TypeID = BuildDeclRefExpr(BuiltinTypeDecl, BuiltinTypeDecl->getType(), VK_LValue, OpLoc);
-      ExprResult VarID = BuildDeclRefExpr(IDVar, AstIdentifierType, VK_LValue, OpLoc);
-
-      Expr *AstVarCtorArg[] = { TypeID.get(), VarID.get() };
-      MultiExprArg AstVarCtorArgs(AstVarCtorArg, 2);
-
-      ExprResult ret = BuildCXXConstructExpr(OpLoc, AstVarType, AstVarCtor, false, AstVarCtorArgs,
-                                   /*HadMultipleCandidates*/ false,
-                                   /*ListInit*/ false, /*StdInitListInit*/ false,
-                                   /*ZeroInit*/ false,
-                                   CXXConstructExpr::CK_Complete, SourceRange());
-
-      CXXConstructExpr *CTor = ret.getAs<CXXConstructExpr>();
-      CTor->setValueDependent(false);
-
-      // create var ast_var
       VarDecl *VarVar = VarDecl::Create(Context, StdReflectionNamespace, OpLoc, OpLoc,
                                         VarII, AstVarType,
                                         Context.getTrivialTypeSourceInfo(AstVarType, OpLoc),
                                         SC_Static);
 
-      VarVar->setInit(CTor);
+      InitializedEntity Entity = InitializedEntity::InitializeVariable(VarVar);
+      InitializationKind Kind = InitializationKind::CreateDirect(OpLoc, OpLoc, OpLoc);
+      ExprResult TypeID = BuildDeclRefExpr(BuiltinTypeDecl, BuiltinTypeDecl->getType(), VK_LValue, OpLoc);
+      ExprResult VarID = BuildDeclRefExpr(IDVar, AstIdentifierType, VK_LValue, OpLoc);
+      Expr *ExprsArray[] = { TypeID.get(), VarID.get() };
+      MultiExprArg Exprs(ExprsArray, 2);
+      InitializationSequence InitSeq(*this, Entity, Kind, Exprs);
+      ExprResult Result = InitSeq.Perform(*this, Entity, Kind, Exprs);
       VarVar->setInitStyle(VarDecl::CallInit);
-      VarVar->setReferenced(true);
-      VarVar->setIsUsed();
       VarVar->setConstexpr(true);
+      VarVar->setInit(Result.get());
 
       StdReflectionNamespace->addDecl(VarVar);
     }
