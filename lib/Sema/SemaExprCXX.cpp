@@ -532,12 +532,13 @@ class TypeidAstBuilder {
         return ExprError(S.Diag(OpLoc, diag::err_need_header_before_typeid));
       if (!ProcessOperand())
         return ExprError();
+
       GenerateReflection();
-      BuildAstInfoForVariablesArray();
+      VarDecl *ClassIDVar = BuildAstInfoForIdentifier(OperandDecl->getName());
+      VarDecl *ClassMembersVar = BuildAstInfoForVariablesArray();
+      VarDecl *Result = BuildClassReflection(ClassIDVar, ClassMembersVar);
 
-      VarDecl *GenVar = BuildAstInfoForIdentifier(OperandDecl->getName());
-
-      return S.BuildDeclRefExpr(GenVar, AstIdentifierType, VK_LValue, OpLoc);
+      return S.BuildDeclRefExpr(Result, AstClassType, VK_LValue, OpLoc);
     }
 
   private:
@@ -703,19 +704,46 @@ class TypeidAstBuilder {
       GenVars.push_back(VarVar);
     }
 
-    void BuildAstInfoForVariablesArray() {
+    VarDecl *BuildClassReflection(VarDecl *ClassIDVar, VarDecl *ClassMembersVar) {
+      std::string ClassVarName = "class_";
+      ClassVarName += OperandDecl->getName();
+      IdentifierInfo *II = &S.PP.getIdentifierTable().get(ClassVarName);
+      TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(AstClassType, OpLoc);
+      VarDecl *Result = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
+                                        II, AstClassType, TSI, SC_Static);
+
+      InitializedEntity Entity = InitializedEntity::InitializeVariable(Result);
+      InitializationKind Kind = InitializationKind::CreateDirect(OpLoc, OpLoc, OpLoc);
+      ExprResult ClassIDVarRef = S.BuildDeclRefExpr(ClassIDVar, AstIdentifierType, VK_LValue, OpLoc);
+      ExprResult ClassMembersVarRef = S.BuildDeclRefExpr(ClassMembersVar, MembersArrayTy, VK_LValue, OpLoc);
+      Expr *ExprsArray[] = { ClassIDVarRef.get(), ClassMembersVarRef.get() };
+      MultiExprArg Exprs(ExprsArray, 2);
+      InitializationSequence InitSeq(S, Entity, Kind, Exprs);
+      ExprResult Params = InitSeq.Perform(S, Entity, Kind, Exprs);
+
+      Result->setInitStyle(VarDecl::CallInit);
+      Result->setConstexpr(true);
+      Result->setInit(Params.get());
+
+      StdReflectionNamespace->addDecl(Result);
+
+      return Result;
+    }
+
+    VarDecl *BuildAstInfoForVariablesArray() {
       if (GenVars.empty())
-        return;
+        return nullptr;
       std::string ArrayName = OperandDecl->getName();
       ArrayName += "_members";
+
       // create const ast_decl* members[]
-      QualType Ty = S.Context.getConstantArrayType(S.Context.getPointerType(AstDeclType),
+      MembersArrayTy = S.Context.getConstantArrayType(S.Context.getPointerType(AstDeclType),
                                                    llvm::APInt(32, GenVars.size()),
                                                    ArrayType::Normal, 0).withConst();
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(ArrayName);
-      TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(Ty, OpLoc);
+      TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(MembersArrayTy, OpLoc);
       VarDecl *ArrayVar = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
-                                          II, Ty, TSI, SC_Static);
+                                          II, MembersArrayTy, TSI, SC_Static);
       ArrayVar->setInitStyle(VarDecl::CInit);
       ArrayVar->setConstexpr(true);
 
@@ -748,11 +776,13 @@ class TypeidAstBuilder {
 
       MultiExprArg Exprs(GenVarRefsExprs);
       Expr *Result = S.ActOnInitList(LParenLoc, Exprs, RParenLoc).get();
-      Result->setType(Ty);
+      Result->setType(MembersArrayTy);
 
       ArrayVar->setInit(Result);
 
       StdReflectionNamespace->addDecl(ArrayVar);
+
+      return ArrayVar;
     }
 
     VarDecl *GetBuiltinTypeVar(BuiltinType::Kind BKind) {
@@ -853,6 +883,7 @@ class TypeidAstBuilder {
     QualType AstVarType;
     QualType AstDeclType;
     QualType AstClassType;
+    QualType MembersArrayTy;
     RecordDecl *OperandDecl;
     CXXRecordDecl *BuiltinDecl;
     SmallVector<VarDecl *, 16> GenVars;
