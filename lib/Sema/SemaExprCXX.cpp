@@ -523,14 +523,17 @@ class TypeidAstBuilder {
     { }
 
     ExprResult Build() {
+#if 0
       llvm::errs() << "DDDD ";
       OpLoc.print(llvm::errs(), S.PP.getSourceManager());
       llvm::errs() << "\n";
+#endif
       if (!ProcessHeader())
         return ExprError(S.Diag(OpLoc, diag::err_need_header_before_typeid));
       if (!ProcessOperand())
         return ExprError();
       GenerateReflection();
+      BuildAstInfoForVariablesArray();
 
       VarDecl *GenVar = BuildAstInfoForIdentifier(OperandDecl->getName());
 
@@ -676,7 +679,83 @@ class TypeidAstBuilder {
       return GenVar;
     }
 
-    VarDecl *GetBuiltinTypeDecl(BuiltinType::Kind BKind) {
+    void BuildAstInfoForVariable(VarDecl *TypeVar, VarDecl *IDVar, llvm::StringRef ID) {
+      static const std::string VarPrefix = "var_";
+      std::string VarStr = VarPrefix + ID.str();
+      IdentifierInfo *II = &S.PP.getIdentifierTable().get(VarStr);
+      TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(AstVarType, OpLoc);
+      VarDecl *VarVar = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
+                                        II, AstVarType, TSI, SC_Static);
+
+      InitializedEntity Entity = InitializedEntity::InitializeVariable(VarVar);
+      InitializationKind Kind = InitializationKind::CreateDirect(OpLoc, OpLoc, OpLoc);
+      ExprResult TypeID = S.BuildDeclRefExpr(TypeVar, TypeVar->getType(), VK_LValue, OpLoc);
+      ExprResult VarID = S.BuildDeclRefExpr(IDVar, AstIdentifierType, VK_LValue, OpLoc);
+      Expr *ExprsArray[] = { TypeID.get(), VarID.get() };
+      MultiExprArg Exprs(ExprsArray, 2);
+      InitializationSequence InitSeq(S, Entity, Kind, Exprs);
+      ExprResult Result = InitSeq.Perform(S, Entity, Kind, Exprs);
+      VarVar->setInitStyle(VarDecl::CallInit);
+      VarVar->setConstexpr(true);
+      VarVar->setInit(Result.get());
+
+      StdReflectionNamespace->addDecl(VarVar);
+      GenVars.push_back(VarVar);
+    }
+
+    void BuildAstInfoForVariablesArray() {
+      if (GenVars.empty())
+        return;
+      std::string ArrayName = OperandDecl->getName();
+      ArrayName += "_members";
+      // create const ast_decl* members[]
+      QualType Ty = S.Context.getConstantArrayType(S.Context.getPointerType(AstDeclType),
+                                                   llvm::APInt(32, GenVars.size()),
+                                                   ArrayType::Normal, 0).withConst();
+      IdentifierInfo *II = &S.PP.getIdentifierTable().get(ArrayName);
+      TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(Ty, OpLoc);
+      VarDecl *ArrayVar = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
+                                          II, Ty, TSI, SC_Static);
+      ArrayVar->setInitStyle(VarDecl::CInit);
+      ArrayVar->setConstexpr(true);
+
+      SmallVector<ExprResult, 16> GenVarRefs;
+      for (auto it : GenVars) {
+        Expr *E = S.BuildDeclRefExpr(it, it->getType(), VK_LValue, OpLoc).get();
+        E->setType(S.Context.getPointerType(AstVarType));
+        E = new (S.Context) UnaryOperator(E, UO_AddrOf,
+                               S.Context.getPointerType(E->getType()),
+                               VK_RValue, OK_Ordinary, LParenLoc);
+
+        // TODO hack
+        // S.Context.getPointerType(AstVarType)->getAsCXXRecordDecl() gives back nullptr so
+        // set AstVarType type here and after the ImpCastExprToType call it will be set back
+        E->setType(AstVarType);
+        CXXCastPath BasePath;
+
+        S.CheckDerivedToBaseConversion(E->getType(), AstDeclType,
+                                         LParenLoc, E->getSourceRange(), &BasePath);
+
+        Expr *Result = S.ImpCastExprToType(E, AstDeclType, CK_DerivedToBase, VK_RValue, &BasePath).get();
+        E->setType(S.Context.getPointerType(AstVarType));
+        Result->setType(S.Context.getPointerType(AstDeclType).withConst());
+
+        GenVarRefs.push_back(Result);
+      }
+      SmallVector<Expr*, 16> GenVarRefsExprs;
+      for (auto it : GenVarRefs)
+        GenVarRefsExprs.push_back(it.get());
+
+      MultiExprArg Exprs(GenVarRefsExprs);
+      Expr *Result = S.ActOnInitList(LParenLoc, Exprs, RParenLoc).get();
+      Result->setType(Ty);
+
+      ArrayVar->setInit(Result);
+
+      StdReflectionNamespace->addDecl(ArrayVar);
+    }
+
+    VarDecl *GetBuiltinTypeVar(BuiltinType::Kind BKind) {
       // TODO: include/clang/AST/BuiltinTypes.def
       const char *BuiltInName;
       switch (BKind)
@@ -749,37 +828,16 @@ class TypeidAstBuilder {
     void GenerateReflection() {
       for (RecordDecl::field_iterator it = OperandDecl->field_begin();
            it != OperandDecl->field_end(); ++it) {
-        static const std::string VarPrefix = "var_";
-        std::string VarStr = VarPrefix + (*it)->getName().str();
         VarDecl *IDVar = BuildAstInfoForIdentifier((*it)->getName());
-        IdentifierInfo *VarII = &S.PP.getIdentifierTable().get(VarStr);
 
-        VarDecl *BuiltinTypeDecl = nullptr;
+        VarDecl *TypeVar = nullptr;
         if (const BuiltinType *BT =
             dyn_cast<BuiltinType>((*it)->getType()->getCanonicalTypeInternal())) {
-          BuiltinTypeDecl = GetBuiltinTypeDecl(BT->getKind());
+          TypeVar = GetBuiltinTypeVar(BT->getKind());
         }
-        assert(BuiltinTypeDecl && "TODO this type is not implemented yet");
+        assert(TypeVar && "TODO this type is not implemented yet");
 
-        VarDecl *VarVar = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
-                                          VarII, AstVarType,
-                                          S.Context.getTrivialTypeSourceInfo(AstVarType, OpLoc),
-                                          SC_Static);
-
-        InitializedEntity Entity = InitializedEntity::InitializeVariable(VarVar);
-        InitializationKind Kind = InitializationKind::CreateDirect(OpLoc, OpLoc, OpLoc);
-        ExprResult TypeID = S.BuildDeclRefExpr(BuiltinTypeDecl, BuiltinTypeDecl->getType(), VK_LValue, OpLoc);
-        ExprResult VarID = S.BuildDeclRefExpr(IDVar, AstIdentifierType, VK_LValue, OpLoc);
-        Expr *ExprsArray[] = { TypeID.get(), VarID.get() };
-        MultiExprArg Exprs(ExprsArray, 2);
-        InitializationSequence InitSeq(S, Entity, Kind, Exprs);
-        ExprResult Result = InitSeq.Perform(S, Entity, Kind, Exprs);
-        VarVar->setInitStyle(VarDecl::CallInit);
-        VarVar->setConstexpr(true);
-        VarVar->setInit(Result.get());
-
-        StdReflectionNamespace->addDecl(VarVar);
-        GenVars.push_back(VarVar);
+        BuildAstInfoForVariable(TypeVar, IDVar, (*it)->getName());
       }
     }
 
