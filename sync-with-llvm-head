@@ -1,0 +1,4 @@
+This clang is compiled with this llvm HEAD:
+commit e3d17d7e9cd67ee72c2ccb1c513c99abc8032bbf
+Author: Jan Vesely <jan.vesely@rutgers.edu>
+Date:   Thu Apr 30 17:15:56 2015 +0000
