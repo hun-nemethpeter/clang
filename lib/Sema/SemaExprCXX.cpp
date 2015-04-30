@@ -533,6 +533,10 @@ class TypeidAstBuilder {
       if (!ProcessOperand())
         return ExprError();
 
+      IdentifierInfo *II = &S.PP.getIdentifierTable().get(ClassVarName);
+      if (VarDecl *GenVar = GetGeneratedVarDecl(II))
+        return BuildVarDeclRefExpr(GenVar);
+
       GenerateReflection();
       VarDecl *ClassIDVar = BuildAstInfoForIdentifier(OperandDecl->getName());
       VarDecl *ClassMembersVar = BuildAstInfoForVariablesArray();
@@ -542,6 +546,13 @@ class TypeidAstBuilder {
     }
 
   private:
+    ExprResult BuildVarDeclRefExpr(ValueDecl *D) {
+      return S.BuildDeclRefExpr(D, AstClassType, VK_LValue, OpLoc);
+    }
+    void CreateReflectedClassName() {
+      ClassVarName += OperandDecl->getName();
+    }
+
     bool ProcessOperand() {
       // Get type info from parsed type parameter
       TypeSourceInfo *TInfo = nullptr;
@@ -577,10 +588,10 @@ class TypeidAstBuilder {
       StdNamespace = S.getStdNamespace();
       if (!StdNamespace)
         return false;
-      StdAstNamespace = GetNamespace(StdNamespace, "ast");
+      StdAstNamespace = GetNamespaceDecl(StdNamespace, "ast");
       if (!StdAstNamespace)
         return false;
-      StdReflectionNamespace = GetNamespace(StdNamespace, "reflection");
+      StdReflectionNamespace = GetNamespaceDecl(StdNamespace, "reflection");
       if (!StdReflectionNamespace)
         return false;
 
@@ -622,7 +633,7 @@ class TypeidAstBuilder {
       return BuiltinDecl != nullptr;
     }
 
-    NamespaceDecl *GetNamespace(NamespaceDecl *Namespace, const char* Name) {
+    NamespaceDecl *GetNamespaceDecl(NamespaceDecl *Namespace, const char* Name) {
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(Name);
       LookupResult R(S, II, SourceLocation(), Sema::LookupNamespaceName);
       S.LookupQualifiedName(R, Namespace);
@@ -636,16 +647,22 @@ class TypeidAstBuilder {
       return Ret;
     }
 
+    VarDecl *GetGeneratedVarDecl(IdentifierInfo *IDII) {
+      LookupResult IDR(S, IDII, OpLoc, Sema::LookupOrdinaryName);
+      S.LookupQualifiedName(IDR, StdReflectionNamespace);
+      VarDecl *GenVar = IDR.getAsSingle<VarDecl>();
+
+      return GenVar;
+    }
+
     /// Build an ast_identifier node
     ///  e.x. static constexpr ast_identifier id_test("test");
     VarDecl* BuildAstInfoForIdentifier(llvm::StringRef ID) {
       static const std::string IDPrefix = "id_";
       std::string IDVarStr = IDPrefix + ID.str();
-
       IdentifierInfo *IDII = &S.PP.getIdentifierTable().get(IDVarStr);
-      LookupResult IDR(S, IDII, OpLoc, Sema::LookupOrdinaryName);
-      S.LookupQualifiedName(IDR, StdReflectionNamespace);
-      VarDecl *GenVar = IDR.getAsSingle<VarDecl>();
+
+      VarDecl *GenVar = GetGeneratedVarDecl(IDII);
       if (GenVar)
         return GenVar;
 
@@ -705,8 +722,6 @@ class TypeidAstBuilder {
     }
 
     VarDecl *BuildClassReflection(VarDecl *ClassIDVar, VarDecl *ClassMembersVar) {
-      std::string ClassVarName = "class_";
-      ClassVarName += OperandDecl->getName();
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(ClassVarName);
       TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(AstClassType, OpLoc);
       VarDecl *Result = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
@@ -887,6 +902,7 @@ class TypeidAstBuilder {
     RecordDecl *OperandDecl;
     CXXRecordDecl *BuiltinDecl;
     SmallVector<VarDecl *, 16> GenVars;
+    std::string ClassVarName = "class_";
 };
 
 }
