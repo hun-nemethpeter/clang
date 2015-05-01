@@ -522,38 +522,38 @@ class TypeidAstBuilder {
       , RParenLoc(RParenLoc)
     { }
 
-    ExprResult Build() {
+    ExprResult build() {
 #if 0
       llvm::errs() << "DDDD ";
       OpLoc.print(llvm::errs(), S.PP.getSourceManager());
       llvm::errs() << "\n";
 #endif
-      if (!ProcessHeader())
+      if (!processHeader())
         return ExprError(S.Diag(OpLoc, diag::err_need_header_before_typeid));
-      if (!ProcessOperand())
+      if (!processOperand())
         return ExprError();
 
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(ClassVarName);
-      if (VarDecl *GenVar = GetGeneratedVarDecl(II))
-        return BuildVarDeclRefExpr(GenVar);
+      if (VarDecl *GenVar = getGeneratedVarDecl(II))
+        return buildVarDeclRefExpr(GenVar);
 
-      GenerateReflection();
-      VarDecl *ClassIDVar = BuildAstInfoForIdentifier(OperandDecl->getName());
-      VarDecl *ClassMembersVar = BuildAstInfoForVariablesArray();
-      VarDecl *Result = BuildClassReflection(ClassIDVar, ClassMembersVar);
+      generateReflection();
+      VarDecl *ClassIDVar = buildAstInfoForIdentifier(OperandDecl->getName());
+      VarDecl *ClassMembersVar = buildAstInfoForVariablesArray();
+      VarDecl *Result = buildClassReflection(ClassIDVar, ClassMembersVar);
 
       return S.BuildDeclRefExpr(Result, AstClassType, VK_LValue, OpLoc);
     }
 
   private:
-    ExprResult BuildVarDeclRefExpr(ValueDecl *D) {
+    ExprResult buildVarDeclRefExpr(ValueDecl *D) {
       return S.BuildDeclRefExpr(D, AstClassType, VK_LValue, OpLoc);
     }
-    void CreateReflectedClassName() {
+    void createReflectedClassName() {
       ClassVarName += OperandDecl->getName();
     }
 
-    bool ProcessOperand() {
+    bool processOperand() {
       // Get type info from parsed type parameter
       TypeSourceInfo *TInfo = nullptr;
       QualType T = S.GetTypeFromParser(TypeParam, &TInfo);
@@ -573,53 +573,53 @@ class TypeidAstBuilder {
       return true;
     }
 
-    bool ProcessHeader() {
-      if (!GetNamespaces())
+    bool processHeader() {
+      if (!getNamespaces())
         return false;
-      if (!GetNodeQualTypes())
+      if (!getNodeQualTypes())
         return false;
-      if (!GetBuiltinTypes())
+      if (!getBuiltinTypes())
         return false;
 
       return true;
     }
 
-    bool GetNamespaces() {
+    bool getNamespaces() {
       StdNamespace = S.getStdNamespace();
       if (!StdNamespace)
         return false;
-      StdAstNamespace = GetNamespaceDecl(StdNamespace, "ast");
+      StdAstNamespace = getNamespaceDecl(StdNamespace, "ast");
       if (!StdAstNamespace)
         return false;
-      StdReflectionNamespace = GetNamespaceDecl(StdNamespace, "reflection");
+      StdReflectionNamespace = getNamespaceDecl(StdNamespace, "reflection");
       if (!StdReflectionNamespace)
         return false;
 
       return true;
     }
 
-    bool GetNodeQualTypes() {
-      if (!GetNodeQualType("ast_identifier", AstIdentifierType))
+    bool getNodeQualTypes() {
+      if (!getNodeQualType("ast_identifier", AstIdentifierType))
         return false;
-      if (!GetNodeQualType("ast_var", AstVarType))
+      if (!getNodeQualType("ast_var", AstVarType))
         return false;
-      if (!GetNodeQualType("ast_decl", AstDeclType))
+      if (!getNodeQualType("ast_decl", AstDeclType))
         return false;
-      if (!GetNodeQualType("ast_class", AstClassType))
+      if (!getNodeQualType("ast_class", AstClassType))
         return false;
 
       return true;
     }
 
-    CXXRecordDecl *GetDeclFromID(DeclContext *LookupCtx, const char *Name) {
+    CXXRecordDecl *getDeclFromID(DeclContext *LookupCtx, const char *Name) {
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(Name);
       LookupResult R(S, II, SourceLocation(), Sema::LookupTagName);
       S.LookupQualifiedName(R, LookupCtx);
       return R.getAsSingle<CXXRecordDecl>();
     }
 
-    bool GetNodeQualType(const char *Name, QualType &NodeType) {
-      CXXRecordDecl *Decl = GetDeclFromID(StdAstNamespace, Name);
+    bool getNodeQualType(const char *Name, QualType &NodeType) {
+      CXXRecordDecl *Decl = getDeclFromID(StdAstNamespace, Name);
       if (!Decl)
         return false;
 
@@ -628,12 +628,12 @@ class TypeidAstBuilder {
       return true;
     }
 
-    bool GetBuiltinTypes() {
-      BuiltinDecl = GetDeclFromID(StdAstNamespace, "builtin_types");
+    bool getBuiltinTypes() {
+      BuiltinDecl = getDeclFromID(StdAstNamespace, "builtin_types");
       return BuiltinDecl != nullptr;
     }
 
-    NamespaceDecl *GetNamespaceDecl(NamespaceDecl *Namespace, const char* Name) {
+    NamespaceDecl *getNamespaceDecl(NamespaceDecl *Namespace, const char* Name) {
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(Name);
       LookupResult R(S, II, SourceLocation(), Sema::LookupNamespaceName);
       S.LookupQualifiedName(R, Namespace);
@@ -647,7 +647,7 @@ class TypeidAstBuilder {
       return Ret;
     }
 
-    VarDecl *GetGeneratedVarDecl(IdentifierInfo *IDII) {
+    VarDecl *getGeneratedVarDecl(IdentifierInfo *IDII) {
       LookupResult IDR(S, IDII, OpLoc, Sema::LookupOrdinaryName);
       S.LookupQualifiedName(IDR, StdReflectionNamespace);
       VarDecl *GenVar = IDR.getAsSingle<VarDecl>();
@@ -657,12 +657,12 @@ class TypeidAstBuilder {
 
     /// Build an ast_identifier node
     ///  e.x. static constexpr ast_identifier id_test("test");
-    VarDecl* BuildAstInfoForIdentifier(llvm::StringRef ID) {
+    VarDecl* buildAstInfoForIdentifier(llvm::StringRef ID) {
       static const std::string IDPrefix = "id_";
       std::string IDVarStr = IDPrefix + ID.str();
       IdentifierInfo *IDII = &S.PP.getIdentifierTable().get(IDVarStr);
 
-      VarDecl *GenVar = GetGeneratedVarDecl(IDII);
+      VarDecl *GenVar = getGeneratedVarDecl(IDII);
       if (GenVar)
         return GenVar;
 
@@ -697,7 +697,9 @@ class TypeidAstBuilder {
       return GenVar;
     }
 
-    void BuildAstInfoForVariable(VarDecl *TypeVar, VarDecl *IDVar, llvm::StringRef ID) {
+    /// Build an ast_var node
+    ///  e.x. constexpr ast_var test_var1(builtin_types::type_int, id_test);
+    void buildAstInfoForVariable(VarDecl *TypeVar, VarDecl *IDVar, llvm::StringRef ID) {
       static const std::string VarPrefix = "var_";
       std::string VarStr = VarPrefix + ID.str();
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(VarStr);
@@ -721,7 +723,9 @@ class TypeidAstBuilder {
       GenVars.push_back(VarVar);
     }
 
-    VarDecl *BuildClassReflection(VarDecl *ClassIDVar, VarDecl *ClassMembersVar) {
+    /// Build an ast_class node
+    ///  e.x. static constexpr ast_class test_class(id_test, test_class_members);
+    VarDecl *buildClassReflection(VarDecl *ClassIDVar, VarDecl *ClassMembersVar) {
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(ClassVarName);
       TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(AstClassType, OpLoc);
       VarDecl *Result = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
@@ -745,7 +749,9 @@ class TypeidAstBuilder {
       return Result;
     }
 
-    VarDecl *BuildAstInfoForVariablesArray() {
+    /// Build an array of variable declarations
+    /// e.x. static constexpr const ast_decl* test_class_members[] = { &test_member1, &test_member2 };
+    VarDecl *buildAstInfoForVariablesArray() {
       if (GenVars.empty())
         return nullptr;
       std::string ArrayName = OperandDecl->getName();
@@ -800,7 +806,7 @@ class TypeidAstBuilder {
       return ArrayVar;
     }
 
-    VarDecl *GetBuiltinTypeVar(BuiltinType::Kind BKind) {
+    VarDecl *getBuiltinTypeVar(BuiltinType::Kind BKind) {
       // TODO: include/clang/AST/BuiltinTypes.def
       const char *BuiltInName;
       switch (BKind)
@@ -870,19 +876,19 @@ class TypeidAstBuilder {
       return Ret;
     }
 
-    void GenerateReflection() {
+    void generateReflection() {
       for (RecordDecl::field_iterator it = OperandDecl->field_begin();
            it != OperandDecl->field_end(); ++it) {
-        VarDecl *IDVar = BuildAstInfoForIdentifier((*it)->getName());
+        VarDecl *IDVar = buildAstInfoForIdentifier((*it)->getName());
 
         VarDecl *TypeVar = nullptr;
         if (const BuiltinType *BT =
             dyn_cast<BuiltinType>((*it)->getType()->getCanonicalTypeInternal())) {
-          TypeVar = GetBuiltinTypeVar(BT->getKind());
+          TypeVar = getBuiltinTypeVar(BT->getKind());
         }
         assert(TypeVar && "TODO this type is not implemented yet");
 
-        BuildAstInfoForVariable(TypeVar, IDVar, (*it)->getName());
+        buildAstInfoForVariable(TypeVar, IDVar, (*it)->getName());
       }
     }
 
@@ -912,7 +918,7 @@ ExprResult
 Sema::ActOnCXXTypeidAST(SourceLocation OpLoc, SourceLocation LParenLoc,
                         ParsedType TypeParam, SourceLocation RParenLoc) {
   TypeidAstBuilder Builder(*this, OpLoc, LParenLoc, TypeParam, RParenLoc);
-  return Builder.Build();
+  return Builder.build();
 }
 
 /// \brief Build a C++ typeid<> expression with a type operand.
