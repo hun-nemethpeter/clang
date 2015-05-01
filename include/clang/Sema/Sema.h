@@ -1273,7 +1273,6 @@ public:
       emit(DB, llvm::index_sequence_for<Ts...>());
       DB << T;
     }
-    VarDecl* CreateReflectionForIdentifier(QualType TypeASTType, NamespaceDecl *StdAstNamespace, llvm::StringRef ID, SourceLocation OpLoc, DeclContextLookupResult Ctor);
   };
 
 private:
