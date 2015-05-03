@@ -5015,7 +5015,8 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       // the l_paren token.
     }
 
-    if (Tok.is(tok::identifier) || Tok.is(tok::kw_operator) ||
+    if (Tok.is(tok::identifier) || Tok.is(tok::constexpr_identifier) ||
+        Tok.is(tok::kw_operator) ||
         Tok.is(tok::annot_template_id) || Tok.is(tok::tilde)) {
       // We found something that indicates the start of an unqualified-id.
       // Parse that unqualified-id.

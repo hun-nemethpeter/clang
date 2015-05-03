@@ -2413,10 +2413,51 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
   // unqualified-id:
   //   identifier
   //   template-id (when it hasn't already been annotated)
-  if (Tok.is(tok::identifier)) {
-    // Consume the identifier.
-    IdentifierInfo *Id = Tok.getIdentifierInfo();
-    SourceLocation IdLoc = ConsumeToken();
+  if (Tok.is(tok::identifier) || Tok.is(tok::constexpr_identifier)) {
+    IdentifierInfo *Id = nullptr;
+    SourceLocation IdLoc;
+    if (Tok.is(tok::constexpr_identifier)) {
+      // #< ( cexpr() )>
+      // ^
+      IdLoc = ConsumeToken();
+      BalancedDelimiterTracker T(*this, tok::l_paren);
+      // #< ( cexpr() )>
+      //    ^
+      T.consumeOpen();
+      // #< ( cexpr() )>
+      //      ^
+      ExprResult R = ParseConstantExpression();
+      // #< ( cexpr() )>
+      //              ^
+      T.consumeClose();
+      Expr *E = R.get();
+      if (E) {
+        Expr::EvalResult ER;
+        bool BResult = E->EvaluateAsRValue(ER, Actions.Context);
+        if (!BResult)
+          return true;
+        if (!Tok.is(tok::greater)) {
+          Diag(ConsumeToken(), diag::err_expected) << tok::greater;
+          return true;
+        }
+        // #< ( cexpr() )>
+        //               ^
+        IdLoc = ConsumeToken();
+        if (!ER.Val.isLValue())
+          return true;
+        Expr *StringE = const_cast<Expr*>(ER.Val.getLValueBase().get<const Expr*>());
+        if (!StringE)
+          return true;
+        StringLiteral *Lit = cast<StringLiteral>(StringE);
+        if (!Lit)
+          return true;
+        Id = &Actions.PP.getIdentifierTable().get(Lit->getString());
+      }
+    } else {
+      // Consume the identifier.
+      Id = Tok.getIdentifierInfo();
+      IdLoc = ConsumeToken();
+    }
 
     if (!getLangOpts().CPlusPlus) {
       // If we're not in C++, only identifiers matter. Record the

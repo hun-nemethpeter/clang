@@ -3528,6 +3528,9 @@ LexNextToken:
     if (Char == '#') {
       Kind = tok::hashhash;
       CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
+    } else if (Char == '<' && LangOpts.CPlusPlus1z) {  // #<(constexpr)> ast paste
+      Kind = tok::constexpr_identifier;
+      CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
     } else if (Char == '@' && LangOpts.MicrosoftExt) {  // #@ -> Charize
       Kind = tok::hashat;
       if (!isLexingRawMode())
