@@ -549,9 +549,6 @@ class TypeidAstBuilder {
     ExprResult buildVarDeclRefExpr(ValueDecl *D) {
       return S.BuildDeclRefExpr(D, AstClassType, VK_LValue, OpLoc);
     }
-    void createReflectedClassName() {
-      ClassVarName += OperandDecl->getName();
-    }
 
     bool processOperand() {
       // Get type info from parsed type parameter
@@ -569,6 +566,7 @@ class TypeidAstBuilder {
         return false;
 
       OperandDecl = TOrig->getAs<RecordType>()->getDecl();
+      ClassVarName += OperandDecl->getName();
 
       return true;
     }
@@ -700,8 +698,8 @@ class TypeidAstBuilder {
     /// Build an ast_var node
     ///  e.x. constexpr ast_var test_var1(builtin_types::type_int, id_test);
     void buildAstInfoForVariable(VarDecl *TypeVar, VarDecl *IDVar, llvm::StringRef ID) {
-      static const std::string VarPrefix = "var_";
-      std::string VarStr = VarPrefix + ID.str();
+      static const std::string VarPrefix = "_var_";
+      std::string VarStr = ClassVarName + VarPrefix + ID.str();
       IdentifierInfo *II = &S.PP.getIdentifierTable().get(VarStr);
       TypeSourceInfo *TSI = S.Context.getTrivialTypeSourceInfo(AstVarType, OpLoc);
       VarDecl *VarVar = VarDecl::Create(S.Context, StdReflectionNamespace, OpLoc, OpLoc,
@@ -754,7 +752,7 @@ class TypeidAstBuilder {
     VarDecl *buildAstInfoForVariablesArray() {
       if (GenVars.empty())
         return nullptr;
-      std::string ArrayName = OperandDecl->getName();
+      std::string ArrayName = ClassVarName;
       ArrayName += "_members";
 
       // create const ast_decl* members[]
