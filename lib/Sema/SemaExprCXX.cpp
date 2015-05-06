@@ -15,6 +15,7 @@
 #include "clang/Sema/SemaInternal.h"
 #include "TreeTransform.h"
 #include "TypeLocBuilder.h"
+#include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/CXXInheritance.h"
@@ -542,6 +543,15 @@ class TypeidAstBuilder {
       VarDecl *ClassMembersVar = buildAstInfoForVariablesArray();
       VarDecl *Result = buildClassReflection(ClassIDVar, ClassMembersVar);
 
+      /// Maybe
+      /// typid<static T> -> export to runtime
+      /// typid<T> -> only compile time
+      bool FeatureExportToRuntime = true;
+
+      /// Export reflection to runtime
+      if (FeatureExportToRuntime)
+        S.Consumer.HandleTopLevelDecl(DeclGroupRef(StdReflectionNamespace));
+
       return S.BuildDeclRefExpr(Result, AstClassType, VK_LValue, OpLoc);
     }
 
@@ -589,9 +599,7 @@ class TypeidAstBuilder {
       StdAstNamespace = getNamespaceDecl(StdNamespace, "ast");
       if (!StdAstNamespace)
         return false;
-      StdReflectionNamespace = getNamespaceDecl(StdNamespace, "reflection");
-      if (!StdReflectionNamespace)
-        return false;
+      createStdReflectionNamespace();
 
       return true;
     }
@@ -643,6 +651,18 @@ class TypeidAstBuilder {
         return nullptr;
 
       return Ret;
+    }
+    void createStdReflectionNamespace() {
+      NamespaceDecl *PrevDecl = getNamespaceDecl(StdNamespace, "reflection");
+      if (PrevDecl)
+        PrevDecl = PrevDecl->getMostRecentDecl();
+      StdReflectionNamespace = NamespaceDecl::Create(S.Context,
+                          StdNamespace,
+                          /*Inline=*/false,
+                          SourceLocation(), SourceLocation(),
+                          &S.PP.getIdentifierTable().get("reflection"),
+                          /*PrevDecl=*/PrevDecl);
+      StdNamespace->addDecl(StdReflectionNamespace);
     }
 
     VarDecl *getGeneratedVarDecl(IdentifierInfo *IDII) {
